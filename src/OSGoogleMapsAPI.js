@@ -30,6 +30,7 @@ function OSGoogleMapsAPIObject() {
         this.callbacks = []; // Functions to be called on map creation
         this.markers = {}; // OSMarkers on this object
         this.directions = {}; // Google Maps directions renderers from this map
+        this.bounds = {}; // OSBounds on this object
 
         /**
          * Adds a callback to be executed when the map associated with the the mapId is created.
@@ -64,10 +65,50 @@ function OSGoogleMapsAPIObject() {
             // to accumulate subsequent event callbacks
             if (typeof this.markers[markerId] === 'undefined') {
                 this.markers[markerId] = new OSMarker(markerId, null);
-            } else if (typeof this.markers[markerId].gMap === google.maps.Marker) {
+            } else if (typeof this.markers[markerId].gMarker === google.maps.Marker) {
                 throw new OSException('MarkerAlreadyExists', 'A Marker with identifier \'' + markerId + '\' already exists.');
             } else {
                 self.logMessage('A marker stub creation was attempted on an already created stub.');
+            }
+        }
+
+        /**
+         * Returns a bounds on this map (if no entry exists, a new, empty one)
+         */
+        this.getBounds = function(boundsId) {
+            // See if the bounds was already initialized, and if not,
+            // initialize
+            if (typeof this.bounds[boundsId] === 'undefined') {
+                //throw new OSException('NoBounds',
+                //   'Bounds with identifier \'' + boundsId + '\', under map \'' + mapId + '\', have not yet been created.');
+                this.bounds[boundsId] = new OSBounds(boundsId);
+            }
+            return this.bounds[boundsId];
+        }
+
+        // Returns a directions on this map (if no entry exists, an empty one 
+        // will be created for callbacks)
+        this.getDirections = function(directionsId) {
+            // See if the directions was already initialized, and if not, create null directions
+            // to accumulate subsequent event callbacks
+            if (typeof this.directions[directionsId] === 'undefined') {
+                throw new OSException('NoDirections',
+                    'Directions with identifier \'' + directionsId + '\', under map \'' + mapId + '\', have not yet been created.');
+            } else {
+                return this.directions[directionsId];
+            }
+        }
+
+        // Creates a directions stub, if none with its identifier already exist
+        this.createDirectionsStub = function(directionsId) {
+            // See if the directions was already initialized, and if not, create null directions
+            // to accumulate subsequent event callbacks
+            if (typeof this.directions[directionsId] === 'undefined') {
+                this.directions[directionsId] = new OSDirections(directionsId, null);
+            } else if (typeof this.diretions[directionsId].renderer === google.maps.DirectionsRenderer) {
+                throw new OSException('DirectionsAlreadyExists', 'Directions with identifier \'' + directionsId + '\' already exist.');
+            } else {
+                console.log('OSGoogleMapsAPI: A directions stub creation was attempted on an already created stub.');
             }
         }
     };
@@ -94,6 +135,38 @@ function OSGoogleMapsAPIObject() {
             }
         }
     };
+
+    /**
+     * This defines the OSBounds class and its constructor, which encapsulates a Google
+     * Maps LatLngBounds, its own identifier and other items.
+     */
+    function OSBounds(boundsId) {
+        this.boundsId = boundsId;
+        this.gBounds = new google.maps.LatLngBounds(); // Google Map object
+    }
+
+    /**
+     * This defines the OSDirections class and its constructor, which encapsulates a Google
+     * DirectionsRenderer, its own identifier and other items.
+     */
+    function OSDirections(directionsId, renderer) {
+        this.directionsId = directionsId;
+        this.renderer = renderer; // Google Map object
+        this.callbacks = []; // Functions to be called on directions creation
+
+        // Adds a callback, if renderer is not initialized; will 
+        // run it immediately otherwise
+        this.executeOnLoad = function(callback) {
+            // If the marker is already created...
+            if (this.renderer != null) {
+                // We can execute it right away
+                callback(this);
+            } else {
+                // ...or else we'll queue it
+                this.callbacks.push(callback);
+            }
+        }
+    }
 
     // Methods
 
@@ -216,7 +289,7 @@ function OSGoogleMapsAPIObject() {
         } catch (e) {
             if (e instanceof OSException) {
                 if (e.name == 'NoMap') {
-                    self.logMessage('OSGoogleMapsAPI: Tried adding a Marker to an unexisting map.');
+                    self.logMessage('Tried adding a Marker to an unexisting map.');
                     throw e;
                 } else if (e.name == 'NoMarker') {
                     // Marker does not exist, as expected
@@ -326,6 +399,25 @@ function OSGoogleMapsAPIObject() {
      */
     this.addDirections = function(mapId, directionsId, directionsRequestOptions, onCreateCallback) {
         onCreateCallback = (typeof onCreateCallback === 'undefined') ? null : onCreateCallback;
+
+        // Check if the directions were already added previously
+        try {
+            if (typeof this.getMap(mapId).getDirections(directionsId).renderer === google.maps.DirectionsRenderer)
+                self.logMessage('Directions \'' + directionsId + '\' were already added previously.');
+        } catch (e) {
+            if (e instanceof OSException) {
+                if (e.name == 'NoMap') {
+                    self.logMessage('Tried adding Directions to an unexisting map.');
+                    throw e;
+                } else if (e.name == 'NoDirections') {
+                    // Marker does not exist, as expected
+                } else
+                    throw e;
+            } else
+                throw e;
+        }
+
+        // Set the Directions rendering process to run on page load
         this.getMap(mapId).executeOnLoad(mapId, function(OSMap) {
             // Ask for the route and set it on the created directions renderer
             var directionsService = getNewDirectionsService();
@@ -335,7 +427,25 @@ function OSGoogleMapsAPIObject() {
                 //       multiple directions
                 newRenderer = new google.maps.DirectionsRenderer();
                 newRenderer.setMap(OSMap.gMap);
-                OSMap.directions[directionsId] = newRenderer;
+                
+                var newOSDirections = new OSDirections(directionsId, newRenderer);
+                try {
+                    // Execute pending callbacks on the new OSDirection (if applicable)
+                    var callbacks = OSMap.getDirections(directionsId).callbacks;
+                    for (var j = 0; j < callbacks.length; j++) {
+                        callbacks[j](newOSDirections);
+                    }
+                } catch (e) {
+                    if (e instanceof OSException) {
+                        if (e.name == 'NoDirections') {
+                            // No callbacks to be ran
+                        } else
+                            throw e;
+                    } else
+                        throw e;
+                }
+                // Assign the news OSDirections to the respective OSMap position
+                OSMap.directions[directionsId] = newOSDirections;
 
                 // If a proper response is received, render the directions
                 if (status == google.maps.DirectionsStatus.OK) {
@@ -360,7 +470,8 @@ function OSGoogleMapsAPIObject() {
     this.removeDirections = function(mapId, directionsId) {
         this.getMap(mapId).executeOnLoad(mapId, function(OSMap) {
             var directions = OSMap.directions[directionsId];
-            directions.setMap(null);
+            var renderer = osDirections.renderer;
+            renderer.setMap(null);
             delete OSMap.directions[directionsId];
         });
     }
@@ -372,7 +483,7 @@ function OSGoogleMapsAPIObject() {
      * directionsId - the identifier of the directions renderer that the event will be added to
      */
     this.getDirectionsDuration = function(mapId, directionsId) {
-        var direction = self.OSMaps[mapId].directions[directionsId].getDirections();
+        var direction = self.OSMaps[mapId].getDirections(directionsId).renderer.getDirections();
         var duration = 0;
         if (direction.routes && direction.routes.length > 0) {
             var route = direction.routes[0];
@@ -386,6 +497,106 @@ function OSGoogleMapsAPIObject() {
             }
         }
         return duration;
+    }
+
+        /**
+     * Creates a new OSBounds object and saves it in the list of OSBounds
+     */
+    this.newBounds = function (mapId,boundsId) {
+        var OSMap = this.getMap(mapId);
+        OSMap.bounds[boundsId] = new OSBounds(boundsId);
+        return OSMap.bounds[boundsId];
+    };
+    
+    /**
+     * Extends the bounds associated with the boundsId to include the
+     * location of the marker associated with the markerId
+     *
+     * markerId - The identifier of the marker to include in the
+     *               bounds.
+     */
+    this.extendBoundsWithMarker = function(mapId, boundsId, markerId) {
+        this.getMap(mapId).executeOnLoad(mapId, function(OSMap) {
+            
+            // Gets Google LatLngBounds object from OSBounds objects
+            var gBounds = OSMap.getBounds(boundsId).gBounds;
+        
+            // Gets an existing OSMarker or a stub (to add callbacks)
+            var curOSMarker;
+            try {
+                curOSMarker = OSMap.getMarker(markerId);
+            } catch(e){
+                if (e instanceof OSException) {
+                    if (e.name == 'NoMarker') {
+                        // No marker stub exists, so create it
+                        OSMap.createStub(markerId);
+                        curOSMarker = OSMap.getMarker(markerId);
+                    } else
+                        throw e;
+                } else
+                    throw e;
+            }
+            
+            // Add deferred bounds extension callback
+            curOSMarker.executeOnLoad(function(OSMarker) {
+                gBounds.extend(OSMarker.gMarker.position);
+            });
+        });
+    }
+
+    /**
+     * Extends the bounds associated with the boundsId to include the
+     * bounds of the directions associated with the directionsId
+     *
+     * directionsId - The identifier of a DirectionsRenderer to
+     *                include in bounds
+     */
+    this.extendBoundsWithDirections = function(mapId, boundsId, directionsId) {
+        this.getMap(mapId).executeOnLoad(mapId, function(OSMap) {
+                
+            // Gets Google LatLngBounds object from OSBounds objects
+            var gBounds = OSMap.getBounds(boundsId).gBounds;
+        
+            // Gets an existing OSMarker or a stub (to add callbacks)
+            var curOSDirections;
+            try {
+                curOSDirections = OSMap.getDirections(directionsId);
+            } catch(e){
+                if (e instanceof OSException) {
+                    if (e.name == 'NoDirections') {
+                        // No directions stub exists, so create it
+                        OSMap.createDirectionsStub(directionsId);
+                        curOSDirections = OSMap.getDirections(directionsId);
+                    } else
+                        throw e;
+                } else
+                    throw e;
+            }
+            
+            // Add deferred bounds extension callback
+            curOSDirections.executeOnLoad(function(OSDirections) {
+                var direction = OSDirections.renderer.getDirections();
+                
+                if (direction.routes && direction.routes.length > 0) {
+                    var route = direction.routes[0];
+                    gBounds.union(route.bounds);
+                }
+            });
+        });
+    }
+    
+    /**
+     * Fits a map to a bounds associated with the boundsId
+     *
+     * boundsId - The identifier of the bounds to fit to
+     */
+    this.fitToBounds = function(mapId, boundsId) {
+        this.getMap(mapId).executeOnLoad(mapId, function(OSMap) {
+            var gMap = OSMap.gMap;
+            var gBounds = OSMap.getBounds(boundsId).gBounds;
+            gMap.fitBounds(gBounds);
+     //       gMap.setCenter(gBounds.getCenter())
+        });
     }
 
     /**
