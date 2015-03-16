@@ -334,8 +334,8 @@ function OSGoogleMapsAPIObject() {
      */
     this.removeMarker = function(mapId, markerId) {
         this.getMap(mapId).executeOnLoad(mapId, function(OSMap) {
-            var OSMarker = OSMap.markers[markerId];
-            var gMarker = OSMarker.gMarker;
+            var marker = OSMap.markers[markerId];
+            var gMarker = marker.gMarker;
             gMarker.setMap(null);
             delete OSMap.markers[markerId];
         });
@@ -470,7 +470,7 @@ function OSGoogleMapsAPIObject() {
     this.removeDirections = function(mapId, directionsId) {
         this.getMap(mapId).executeOnLoad(mapId, function(OSMap) {
             var directions = OSMap.directions[directionsId];
-            var renderer = osDirections.renderer;
+            var renderer = directions.renderer;
             renderer.setMap(null);
             delete OSMap.directions[directionsId];
         });
