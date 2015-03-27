@@ -108,7 +108,7 @@ function OSGoogleMapsAPIObject() {
             } else if (typeof this.diretions[directionsId].renderer === google.maps.DirectionsRenderer) {
                 throw new OSException('DirectionsAlreadyExists', 'Directions with identifier \'' + directionsId + '\' already exist.');
             } else {
-                console.log('OSGoogleMapsAPI: A directions stub creation was attempted on an already created stub.');
+                self.logMessage('A directions stub creation was attempted on an already created stub.');
             }
         }
     };
@@ -499,7 +499,7 @@ function OSGoogleMapsAPIObject() {
         return duration;
     }
 
-        /**
+    /**
      * Creates a new OSBounds object and saves it in the list of OSBounds
      */
     this.newBounds = function (mapId,boundsId) {
@@ -592,10 +592,12 @@ function OSGoogleMapsAPIObject() {
      */
     this.fitToBounds = function(mapId, boundsId) {
         this.getMap(mapId).executeOnLoad(mapId, function(OSMap) {
-            var gMap = OSMap.gMap;
-            var gBounds = OSMap.getBounds(boundsId).gBounds;
-            gMap.fitBounds(gBounds);
-     //       gMap.setCenter(gBounds.getCenter())
+            // Fit to bounds should only run once everything is ready
+            google.maps.event.addListenerOnce(OSMap.gMap, 'idle', function() {
+                var gMap = OSMap.gMap;
+                var gBounds = OSMap.getBounds(boundsId).gBounds;
+                gMap.fitBounds(gBounds);
+            });
         });
     }
 
